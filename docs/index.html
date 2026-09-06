@@ -135,7 +135,12 @@
       <label for="apiBase">Backend URL</label>
       <input id="apiBase" type="url" inputmode="url" placeholder="https://&lt;project&gt;.supabase.co/functions/v1/api" autocomplete="off" />
       <label for="token">Access phrase</label>
-      <input id="token" type="password" placeholder="shared secret" autocomplete="current-password" />
+      <!-- Deliberately visible and autocorrect-proof: on a phone keyboard an
+           invisible field plus autocapitalise is how a good phrase silently
+           becomes the wrong one. -->
+      <input id="token" type="text" placeholder="shared secret" autocomplete="off"
+             autocapitalize="off" autocorrect="off" spellcheck="false"
+             style="font-family: ui-monospace, monospace" />
       <label for="message">Message posted to the LINE group</label>
       <textarea id="message" placeholder="On my way."></textarea>
       <button class="secondary" id="save">Save &amp; register this device</button>
@@ -378,7 +383,7 @@ $('enable').addEventListener('click', registerDevice);
 
 $('save').addEventListener('click', async () => {
   settings.apiBase = $('apiBase').value.trim() || DEFAULT_API;
-  settings.token = $('token').value;
+  settings.token = $('token').value.trim();
   settings.message = $('message').value.trim() || 'On my way.';
   localStorage.setItem(LS, JSON.stringify(settings));
   toast('Saved.');
