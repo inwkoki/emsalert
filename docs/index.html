@@ -169,8 +169,6 @@
       <input id="token" type="text" placeholder="shared secret" autocomplete="off"
              autocapitalize="off" autocorrect="off" spellcheck="false"
              style="font-family: ui-monospace, monospace" />
-      <label for="message">Message posted to the LINE group</label>
-      <textarea id="message" placeholder="On my way."></textarea>
       <button class="secondary" id="save">Save &amp; register this device</button>
       <button class="secondary" id="test">Send a test push to this phone</button>
     </details>
@@ -192,7 +190,10 @@ const LS = 'oncall.settings';
 const DEFAULT_API = 'https://mvagebjizddemohhelta.supabase.co/functions/v1/api';
 
 const settings = Object.assign(
-  { apiBase: DEFAULT_API, token: '', message: 'On my way.' },
+  // The message posted to LINE deliberately lives only on the server
+  // (ACK_MESSAGE), so answering from the page and from the notification cannot
+  // say two different things.
+  { apiBase: DEFAULT_API, token: '' },
   JSON.parse(localStorage.getItem(LS) || '{}')
 );
 
@@ -391,7 +392,7 @@ $('ack').addEventListener('click', async () => {
   try {
     const out = await call('/acknowledge', {
       method: 'POST',
-      body: JSON.stringify({ id: current?.id, message: settings.message, via: 'page' })
+      body: JSON.stringify({ id: current?.id, via: 'page' })
     });
     acked = { acked_at: out.acked_at || new Date().toISOString(), via: 'page', line: out.line };
     if (out.line === 'line-not-configured') toast('Marked — but LINE is not configured on the backend.');
@@ -421,7 +422,6 @@ $('enable').addEventListener('click', registerDevice);
 $('save').addEventListener('click', async () => {
   settings.apiBase = $('apiBase').value.trim() || DEFAULT_API;
   settings.token = $('token').value.trim();
-  settings.message = $('message').value.trim() || 'On my way.';
   localStorage.setItem(LS, JSON.stringify(settings));
   toast('Saved.');
   await registerDevice();
@@ -444,7 +444,6 @@ $('test').addEventListener('click', async () => {
 
 $('apiBase').value = settings.apiBase;
 $('token').value = settings.token;
-$('message').value = settings.message;
 if (!settings.token) $('settings').open = true;
 
 // A site blocked on a previous visit should say so on arrival, not only after
