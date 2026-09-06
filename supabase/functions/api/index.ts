@@ -28,6 +28,13 @@ const LINE_GROUP_ID = env('LINE_GROUP_ID');
 const ACK_MESSAGE = env('ACK_MESSAGE') || 'On my way.';
 const APP_URL = env('APP_URL');
 
+// What the team types in the group to page the phone. Deliberately unlikely to
+// be typed by accident; override with TRIGGER_KEYWORDS (comma-separated).
+const KEYWORDS = (env('TRIGGER_KEYWORDS') || '!call,!alert,!doctor')
+  .split(',')
+  .map((k) => k.trim().toLowerCase())
+  .filter(Boolean);
+
 const CORS = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, content-type, x-line-signature',
@@ -113,7 +120,11 @@ function publicKey() {
 
 // ---- push -------------------------------------------------------------------
 
-type Sub = { endpoint: string; subscription: PushSubscriptionJSON };
+type PushSubscriptionRecord = {
+  endpoint: string;
+  keys: { p256dh: string; auth: string };
+};
+type Sub = { endpoint: string; subscription: PushSubscriptionRecord };
 
 async function fanOut(subs: Sub[], payload: unknown) {
   const server = await applicationServer();
@@ -187,6 +198,34 @@ async function pushToLine(message: string) {
   return { ok: true, status: 'sent' };
 }
 
+// Who sent the message, so the alert can say "Call from Ploy" rather than "Call
+// from Uf3b2…". Best effort — a failure here must not stop the page.
+async function groupMemberName(groupId: string, userId: string) {
+  if (!LINE_TOKEN) return null;
+  try {
+    const res = await fetch(`https://api.line.me/v2/bot/group/${groupId}/member/${userId}`, {
+      headers: { Authorization: `Bearer ${LINE_TOKEN}` }
+    });
+    if (!res.ok) return null;
+    return (await res.json()).displayName ?? null;
+  } catch {
+    return null;
+  }
+}
+
+async function replyToLine(replyToken: string, message: string) {
+  if (!LINE_TOKEN) return;
+  try {
+    await fetch('https://api.line.me/v2/bot/message/reply', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${LINE_TOKEN}` },
+      body: JSON.stringify({ replyToken, messages: [{ type: 'text', text: message }] })
+    });
+  } catch (err) {
+    console.error('[line] reply failed', String(err));
+  }
+}
+
 async function verifyLineSignature(raw: string, signature: string) {
   const key = await crypto.subtle.importKey(
     'raw',
@@ -246,6 +285,44 @@ Deno.serve(async (req) => {
             payload: event
           })
         });
+
+        // --- the team's trigger ---------------------------------------------
+        // A message in the configured group that starts with a keyword, or that
+        // @-mentions the bot, pages the phone. Only the configured group can do
+        // this, so a stray invite elsewhere cannot page anyone.
+        if (
+          event.type === 'message' &&
+          event.message?.type === 'text' &&
+          event.source?.type === 'group' &&
+          event.source.groupId === LINE_GROUP_ID
+        ) {
+          const body = String(event.message.text ?? '').trim();
+          const lower = body.toLowerCase();
+          const hit = KEYWORDS.find((k) => lower === k || lower.startsWith(k + ' '));
+          const mentioned = Boolean(event.message.mention?.mentionees?.some((m: { type?: string }) => m.type === 'bot'));
+
+          if (hit || mentioned) {
+            const name = event.source.userId
+              ? await groupMemberName(event.source.groupId, event.source.userId)
+              : null;
+            const detail = hit ? body.slice(hit.length).trim() : body;
+
+            const out = await raiseAlert(base, {
+              title: name ? `${name} is calling you` : 'The team is calling you',
+              body: detail || 'Tap to respond',
+              source: 'line-group'
+            });
+
+            if (event.replyToken) {
+              await replyToLine(
+                event.replyToken,
+                out.devices === 0
+                  ? 'No phone is registered for alerts yet — call the old way.'
+                  : 'Paged. Waiting for a reply.'
+              );
+            }
+          }
+        }
       }
       return text('ok');
     }
@@ -333,6 +410,7 @@ Deno.serve(async (req) => {
         const g = groups.get(row.group_id) ?? {
           group_id: row.group_id,
           last_seen: row.received_at,
+          first_seen: row.received_at,
           events: [] as string[],
           last_message: null as string | null,
           left: false,
