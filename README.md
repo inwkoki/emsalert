@@ -34,7 +34,7 @@ bill, no cold starts.
 
 ## Routes
 
-All under `https://<project>.supabase.co/functions/v1/api`:
+All under `https://mvagebjizddemohhelta.supabase.co/functions/v1/api`:
 
 | Route | Auth | Purpose |
 | --- | --- | --- |
@@ -50,6 +50,16 @@ All under `https://<project>.supabase.co/functions/v1/api`:
 Acks are idempotent per alert, so answering from the notification and then
 opening the page doesn't post twice. Subscriptions Chrome discards (404/410)
 are deleted on the next push.
+
+## Already done
+
+- Page live at https://inwkoki.github.io/emsalert/ (Pages → `main` → `/docs`)
+- Tables created in project `mvagebjizddemohhelta`
+- Function `api` deployed with Verify JWT off
+- Secrets set: `VAPID_KEYS`, `VAPID_SUBJECT`, `ACCESS_TOKEN`, `TRIGGER_TOKEN`, `APP_URL`, `ACK_MESSAGE`
+  (the access phrase is in `ACCESS-PHRASE.local.json`, gitignored)
+
+Still needed: the three `LINE_*` secrets, and registering the phone.
 
 ## Setup
 
@@ -102,7 +112,7 @@ step is last.
    **Webhooks on**.
 3. **Developers Console** (`developers.line.biz`) → your channel → **Messaging
    API** tab → **Webhook URL** →
-   `https://<project>.supabase.co/functions/v1/api/line-webhook` → **Update**,
+   `https://mvagebjizddemohhelta.supabase.co/functions/v1/api/line-webhook` → **Update**,
    then turn **Use webhook** on. Click **Verify** — it should say Success.
 4. On your phone: add **@751iidqv** as a friend, then invite it into the team
    group like any other member.
@@ -122,7 +132,7 @@ step is last.
 7. Test it on its own, before trusting the button:
 
    ```bash
-   curl -X POST https://<project>.supabase.co/functions/v1/api/acknowledge \
+   curl -X POST https://mvagebjizddemohhelta.supabase.co/functions/v1/api/acknowledge \
      -H "Authorization: Bearer $ACCESS_TOKEN" \
      -H "Content-Type: application/json" \
      -d '{"message":"test from curl"}'
@@ -150,7 +160,7 @@ your name. So write `ACK_MESSAGE` in the third person.
 ## Raising an alert
 
 ```bash
-curl -X POST https://<project>.supabase.co/functions/v1/api/notify \
+curl -X POST https://mvagebjizddemohhelta.supabase.co/functions/v1/api/notify \
   -H "Authorization: Bearer $ACCESS_TOKEN" -H "Content-Type: application/json" \
   -d '{"title":"Trauma call","body":"ER, resus 2"}'
 ```
@@ -158,7 +168,7 @@ curl -X POST https://<project>.supabase.co/functions/v1/api/notify \
 Or one GET, no headers — good for a phone shortcut or a colleague:
 
 ```
-https://<project>.supabase.co/functions/v1/api/trigger?token=TRIGGER_TOKEN&title=Trauma%20call
+https://mvagebjizddemohhelta.supabase.co/functions/v1/api/trigger?token=TRIGGER_TOKEN&title=Trauma%20call
 ```
 
 Give colleagues `TRIGGER_TOKEN`, never `ACCESS_TOKEN`: it can only raise alerts,
