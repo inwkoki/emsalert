@@ -444,8 +444,18 @@ Deno.serve(async (req) => {
 
     if (route === '/state') {
       const events = await db('alert_events?select=*&order=created_at.desc&limit=10');
-      const subs = await db('push_subscriptions?select=endpoint');
-      return json({ latest: events?.[0] ?? null, events: events ?? [], devices: subs?.length ?? 0 });
+      const subs = await db('push_subscriptions?select=endpoint,label,created_at&order=created_at.desc');
+      return json({
+        latest: events?.[0] ?? null,
+        events: events ?? [],
+        devices: subs?.length ?? 0,
+        // Enough to tell a phone from a laptop, and to spot a stale registration.
+        device_list: (subs ?? []).map((s: { label?: string; created_at: string; endpoint: string }) => ({
+          label: s.label ?? 'unknown',
+          registered: s.created_at,
+          service: new URL(s.endpoint).host
+        }))
+      });
     }
 
     return json({ error: 'not found', route }, 404);
