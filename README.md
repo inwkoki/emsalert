@@ -87,24 +87,46 @@ Render to that Netlify URL so notifications open the right page.
 
 ### 4. LINE
 
-1. LINE Developers Console → create a Provider → a Messaging API channel.
-2. Issue a long-lived **Channel Access Token** → `LINE_CHANNEL_ACCESS_TOKEN`.
-   Copy the Channel Secret too → `LINE_CHANNEL_SECRET` (verifies the webhook).
-3. Add the channel's official account as a friend, then invite it into the
-   team group like any other member.
-4. Set the channel's webhook URL to `https://<your-render-app>/api/line-webhook`
-   and turn webhook delivery on.
-5. Send any message in the group. The Render log prints
+The bot is the existing official account **@751iidqv**. Two consoles are
+involved and it's easy to hunt in the wrong one:
+
+- **OA Manager** (`manager.line.biz`) — who the bot may talk to, and whether it
+  replies automatically.
+- **Developers Console** (`developers.line.biz`) — the token, the secret, and
+  the webhook URL.
+
+1. OA Manager → **Settings → Account settings** → turn **on** "Allow joining
+   group chats and multi-person chats". Without this you cannot invite the bot
+   into the team group at all.
+2. OA Manager → **Settings → Response settings** → chat mode **Bot**, turn
+   **off** greeting and auto-reply messages (otherwise the group gets a canned
+   reply every time someone posts), and turn **on** Webhooks.
+3. OA Manager → **Settings → Messaging API** → note the channel it is linked to
+   (enable Messaging API here first if it has never been turned on).
+4. Developers Console → that channel → **Messaging API** tab → issue a
+   long-lived **Channel access token** → `LINE_CHANNEL_ACCESS_TOKEN`.
+   **Basic settings** tab → **Channel secret** → `LINE_CHANNEL_SECRET`.
+5. Add **@751iidqv** as a friend on your phone, then invite it into the team
+   group like any other member.
+6. Developers Console → Messaging API tab → set the webhook URL to
+   `https://<your-render-app>/api/line-webhook` and turn **Use webhook** on.
+7. Send any message in the group. The Render log prints
    `[line-webhook] source: {"type":"group","groupId":"C…"}` — copy that
    `groupId` into `LINE_GROUP_ID`.
-6. You can turn webhook delivery off again; push messages don't need it. Keep
+8. You can turn webhook delivery off again; push messages don't need it. Keep
    the route for phase 2.
-7. Test acknowledging before wiring the button, so LINE errors don't get
+9. Test acknowledging before wiring the button, so LINE errors don't get
    tangled up with frontend bugs:
 
 ```bash
 curl -X POST https://<your-render-app>/api/acknowledge -H "Authorization: Bearer $ACCESS_TOKEN" -H "Content-Type: application/json" -d "{\"message\":\"test from curl\"}"
 ```
+
+Each acknowledgement is one LINE push message and counts against the official
+account's monthly message quota — check the current allowance under **Statistics
+/ message usage** in the OA Manager. At a handful of call-outs a day this is not
+close to a problem, but it is the thing that would silently stop working if the
+quota ran out, so it's worth knowing where the number lives.
 
 ### 5. Your phone (Galaxy S25 Ultra)
 
