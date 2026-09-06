@@ -27,6 +27,9 @@ const LINE_SECRET = env('LINE_CHANNEL_SECRET');
 const LINE_GROUP_ID = env('LINE_GROUP_ID');
 const ACK_MESSAGE = env('ACK_MESSAGE') || 'On my way.';
 const APP_URL = env('APP_URL');
+// Overridable so the escalation and reply paths can be tested end to end
+// against a stub instead of the real LINE API.
+const LINE_API = env('LINE_API_BASE') || 'https://api.line.me';
 
 // What the team types in the group to page the phone. Deliberately unlikely to
 // be typed by accident; override with TRIGGER_KEYWORDS (comma-separated).
@@ -178,14 +181,85 @@ async function raiseAlert(base: string, input: { title?: string; body?: string; 
     token: ACCESS_TOKEN,
     appUrl: APP_URL
   });
+
+  // Start the clock. A second of slack so the sweep's `created_at <` comparison
+  // is unambiguous rather than racing the deadline exactly.
+  if (ESCALATE_AFTER) {
+    background(async () => {
+      await new Promise((r) => setTimeout(r, ESCALATE_AFTER * 1000 + 1000));
+      await escalateOverdue();
+    });
+  }
+
   return { id: event.id, ...result };
+}
+
+// ---- escalation -------------------------------------------------------------
+//
+// If an alert is not answered within ESCALATE_AFTER seconds, tell the group so
+// they stop waiting and pick up the phone. Two things drive this, deliberately:
+//
+//   1. a timer started when the alert is raised (fast, exact), and
+//   2. a sweep on every later request (catches anything the timer missed —
+//      a worker eviction must not silently swallow an escalation).
+//
+// Both funnel through the same conditional UPDATE, so whoever gets there first
+// posts and everyone else sees zero rows changed and does nothing.
+
+const ESCALATE_AFTER = Number(env('ESCALATE_AFTER_SECONDS') || 60);
+const ESCALATE_MESSAGE = env('ESCALATE_MESSAGE') || 'โกกิไม่ตอบ กรุณาโทร';
+
+async function escalateOverdue() {
+  if (!ESCALATE_AFTER) return 0;
+  const cutoff = new Date(Date.now() - ESCALATE_AFTER * 1000).toISOString();
+  const due =
+    (await db(
+      `alert_events?select=id&acked_at=is.null&escalated_at=is.null&created_at=lt.${cutoff}`
+    )) ?? [];
+
+  let posted = 0;
+  for (const row of due) {
+    // Claim it first. The filter repeats the conditions so a concurrent ack or
+    // a second sweep cannot both win.
+    const claimed = await db(
+      `alert_events?id=eq.${encodeURIComponent(row.id)}&acked_at=is.null&escalated_at=is.null`,
+      {
+        method: 'PATCH',
+        prefer: 'return=representation',
+        body: JSON.stringify({ escalated_at: new Date().toISOString() })
+      }
+    );
+    if (!claimed?.length) continue; // someone else got there — answered, or already escalated
+
+    const line = await pushToLine(ESCALATE_MESSAGE);
+    if (!line.ok) {
+      // Release the claim so the next sweep retries rather than losing it.
+      await db(`alert_events?id=eq.${encodeURIComponent(row.id)}`, {
+        method: 'PATCH',
+        prefer: 'return=minimal',
+        body: JSON.stringify({ escalated_at: null })
+      });
+      console.error('[escalate] LINE post failed, released for retry', line.status);
+      continue;
+    }
+    console.log('[escalate] no answer for', row.id, '— told the group');
+    posted++;
+  }
+  return posted;
+}
+
+// Run work after the response has gone out, where the platform allows it.
+function background(task: () => Promise<unknown>) {
+  const runtime = (globalThis as { EdgeRuntime?: { waitUntil(p: Promise<unknown>): void } }).EdgeRuntime;
+  const promise = task().catch((err) => console.error('[background]', String(err)));
+  runtime?.waitUntil(promise);
 }
 
 // ---- LINE -------------------------------------------------------------------
 
 async function pushToLine(message: string) {
   if (!LINE_TOKEN || !LINE_GROUP_ID) return { ok: false, status: 'line-not-configured' };
-  const res = await fetch('https://api.line.me/v2/bot/message/push', {
+  const res = await fetch(`${LINE_API}/v2/bot/message/push`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${LINE_TOKEN}` },
     body: JSON.stringify({ to: LINE_GROUP_ID, messages: [{ type: 'text', text: message }] })
@@ -203,7 +277,7 @@ async function pushToLine(message: string) {
 async function groupMemberName(groupId: string, userId: string) {
   if (!LINE_TOKEN) return null;
   try {
-    const res = await fetch(`https://api.line.me/v2/bot/group/${groupId}/member/${userId}`, {
+    const res = await fetch(`${LINE_API}/v2/bot/group/${groupId}/member/${userId}`, {
       headers: { Authorization: `Bearer ${LINE_TOKEN}` }
     });
     if (!res.ok) return null;
@@ -216,7 +290,7 @@ async function groupMemberName(groupId: string, userId: string) {
 async function replyToLine(replyToken: string, message: string) {
   if (!LINE_TOKEN) return;
   try {
-    await fetch('https://api.line.me/v2/bot/message/reply', {
+    await fetch(`${LINE_API}/v2/bot/message/reply`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${LINE_TOKEN}` },
       body: JSON.stringify({ replyToken, messages: [{ type: 'text', text: message }] })
@@ -247,6 +321,12 @@ Deno.serve(async (req) => {
   // Everything after the function name, e.g. /functions/v1/api/notify -> /notify
   const route = url.pathname.replace(/^.*?\/api(?=\/|$)/, '') || '/';
   const base = `${url.origin}${url.pathname.slice(0, url.pathname.length - route.length)}`;
+
+  // Backstop: any request is a chance to notice an alert nobody answered, in
+  // case the timer's worker was evicted. Runs after the response, off the path.
+  if (route !== '/health' && route !== '/vapid-public-key' && ESCALATE_AFTER) {
+    background(escalateOverdue);
+  }
 
   try {
     // ---- public -------------------------------------------------------------

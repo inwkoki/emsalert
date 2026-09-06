@@ -20,8 +20,18 @@ create table if not exists alert_events (
   acked_at      timestamptz,
   ack_message   text,
   ack_via       text,
-  line_status   text
+  line_status   text,
+  -- Set once, by whoever wins the race, when an unanswered alert is escalated
+  -- to the group. Its NULL-ness is the lock that stops a double post.
+  escalated_at  timestamptz
 );
+
+alter table alert_events add column if not exists escalated_at timestamptz;
+
+-- The escalation sweep looks for exactly this: unanswered, un-escalated, old.
+create index if not exists alert_events_pending_idx
+  on alert_events (created_at)
+  where acked_at is null and escalated_at is null;
 
 create index if not exists alert_events_created_at_idx on alert_events (created_at desc);
 
