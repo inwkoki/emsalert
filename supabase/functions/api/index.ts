@@ -320,6 +320,36 @@ Deno.serve(async (req) => {
       return json({ ok: true, acked_at, message, line: line.status });
     }
 
+    // Every group the bot has seen, newest first — invite it somewhere, then
+    // call this. `left: true` means the bot is no longer in that group.
+    if (route === '/groups') {
+      const rows =
+        (await db(
+          'line_webhook_events?select=group_id,event_type,received_at,payload&group_id=not.is.null&order=received_at.desc&limit=200'
+        )) ?? [];
+
+      const groups = new Map<string, Record<string, unknown>>();
+      for (const row of rows) {
+        const g = groups.get(row.group_id) ?? {
+          group_id: row.group_id,
+          last_seen: row.received_at,
+          events: [] as string[],
+          last_message: null as string | null,
+          left: false,
+          is_current: row.group_id === LINE_GROUP_ID
+        };
+        (g.events as string[]).push(row.event_type);
+        if (!g.last_message && row.payload?.message?.text) g.last_message = row.payload.message.text;
+        // Rows arrive newest first, so the first leave/join we see is the latest.
+        if (!(g.events as string[]).some((e) => e === 'join')) {
+          if (row.event_type === 'leave' || row.event_type === 'memberLeft') g.left = true;
+        }
+        g.first_seen = row.received_at;
+        groups.set(row.group_id, g);
+      }
+      return json({ configured: LINE_GROUP_ID || null, groups: [...groups.values()] });
+    }
+
     if (route === '/state') {
       const events = await db('alert_events?select=*&order=created_at.desc&limit=10');
       const subs = await db('push_subscriptions?select=endpoint');

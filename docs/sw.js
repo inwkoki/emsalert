@@ -48,8 +48,9 @@ self.addEventListener('push', (event) => {
     icon: './icon-192.png',
     badge: './icon-192.png',
     tag: 'oncall-alert',
-    renotify: true,
-    requireInteraction: true, // stays on screen until you deal with it
+    renotify: true,           // a repeat alert re-alerts instead of arriving silently
+    requireInteraction: true, // stays on screen until you deal with it (desktop; Android ignores it)
+    silent: false,            // never suppress sound — the Android channel decides the rest
     vibrate: [300, 120, 300, 120, 300],
     timestamp: Date.now(),
     data,
