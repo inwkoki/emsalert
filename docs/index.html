@@ -98,6 +98,16 @@
   .ack-yes { color: var(--accent); }
   .ack-no { color: var(--amber); }
 
+  #blocked {
+    margin-top: 12px; padding: 12px 14px; border-radius: 12px;
+    border: 1px solid #5c3a20; background: #241a10; font-size: 13px; line-height: 1.55;
+  }
+  #blocked strong { color: var(--amber); }
+  #blocked p { margin: 6px 0; color: var(--muted); }
+  #blocked ol { margin: 6px 0 0; padding-left: 18px; color: var(--muted); }
+  #blocked li { margin-bottom: 5px; }
+  #blocked b { color: var(--text); font-weight: 600; }
+
   #toast {
     position: fixed; left: 50%; bottom: 24px; transform: translate(-50%, 24px);
     background: #1d2733; border: 1px solid var(--line); color: var(--text);
@@ -127,6 +137,24 @@
     </button>
     <button class="secondary" id="enable" hidden>Enable notifications on this phone</button>
     <button class="secondary" id="simulate">Simulate incoming (dev)</button>
+
+    <!-- Chrome's "quieter messaging" blocks the prompt outright and the toast is
+         gone before it can be read. This stays until the block is lifted. -->
+    <div id="blocked" hidden>
+      <strong>Chrome is blocking notifications for this page.</strong>
+      <p>It says the site "may send spam" — that's Chrome's automatic guard, not a
+         verdict on this page. To allow it:</p>
+      <ol>
+        <li><b>Desktop:</b> click the icon to the left of the address (padlock or
+            sliders) → <b>Site settings</b> → <b>Notifications</b> → <b>Allow</b>,
+            then reload.</li>
+        <li><b>Android:</b> ⋮ → <b>Settings</b> → <b>Site settings</b> →
+            <b>Notifications</b> → find this site → <b>Allow</b>.</li>
+        <li>If it still won't ask, turn off
+            <b>Settings → Site settings → Notifications → "Use quieter messaging"</b>
+            and try again.</li>
+      </ol>
+    </div>
   </section>
 
   <section class="card">
@@ -173,6 +201,10 @@ let acked = null;        // ack info for `current`
 let swReg = null;
 
 // ---- helpers ---------------------------------------------------------------
+
+const showBlocked = (on) => {
+  $('blocked').hidden = !on;
+};
 
 function toast(msg) {
   const el = $('toast');
@@ -306,8 +338,13 @@ async function registerDevice() {
   }
 
   const permission = await Notification.requestPermission();
+  showBlocked(permission === 'denied');
   if (permission !== 'granted') {
-    toast('Notification permission denied — allow it in site settings.');
+    toast(
+      permission === 'denied'
+        ? 'Chrome is blocking notifications — see the panel above.'
+        : 'The permission prompt was dismissed. Try again.'
+    );
     return false;
   }
 
@@ -409,6 +446,10 @@ $('apiBase').value = settings.apiBase;
 $('token').value = settings.token;
 $('message').value = settings.message;
 if (!settings.token) $('settings').open = true;
+
+// A site blocked on a previous visit should say so on arrival, not only after
+// the button is pressed.
+if ('Notification' in window) showBlocked(Notification.permission === 'denied');
 
 if ('serviceWorker' in navigator) {
   navigator.serviceWorker.register('./sw.js').then(async (reg) => {
