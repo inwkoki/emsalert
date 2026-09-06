@@ -1,0 +1,51 @@
+# Daily notice into the LINE group, weekday mornings, for a fixed two-week run.
+#
+# GitHub's scheduler fires in UTC and can drift a few minutes under load; that is
+# fine for a morning notice, but it is why this is NOT what pages the phone.
+name: Daily LINE notice
+
+on:
+  schedule:
+    - cron: '0 1 * * 1-5' # 01:00 UTC = 08:00 Asia/Bangkok, Mon-Fri
+  workflow_dispatch:
+    inputs:
+      ignore_window:
+        description: 'Send even if today is outside the two-week window (for testing)'
+        type: boolean
+        default: false
+
+concurrency: daily-line-notice
+
+jobs:
+  notice:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Post the notice
+        shell: bash
+        env:
+          API: https://mvagebjizddemohhelta.supabase.co/functions/v1/api
+          ACCESS_TOKEN: ${{ secrets.ONCALL_ACCESS_TOKEN }}
+          MESSAGE: 'EMS โกกิ ไม่กินข้าว 0984973757'
+          FIRST_DAY: '2026-09-07'
+          LAST_DAY: '2026-09-18'
+          IGNORE_WINDOW: ${{ inputs.ignore_window }}
+        run: |
+          set -euo pipefail
+          today=$(TZ=Asia/Bangkok date +%F)
+          echo "Bangkok date: $today (window $FIRST_DAY .. $LAST_DAY)"
+
+          if [[ "$IGNORE_WINDOW" != "true" ]]; then
+            if [[ "$today" < "$FIRST_DAY" || "$today" > "$LAST_DAY" ]]; then
+              echo "Outside the two-week window — nothing to send."
+              exit 0
+            fi
+          fi
+
+          code=$(curl -sS -o response.json -w '%{http_code}' -X POST "$API/announce" \
+            -H "Authorization: Bearer $ACCESS_TOKEN" \
+            -H 'Content-Type: application/json' \
+            --data "$(jq -nc --arg m "$MESSAGE" '{message:$m}')")
+
+          echo "HTTP $code"; cat response.json; echo
+          # Fail loudly: a silent failure here is a notice nobody knows is missing.
+          [[ "$code" == "200" ]]

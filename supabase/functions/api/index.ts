@@ -428,6 +428,20 @@ Deno.serve(async (req) => {
       return json({ configured: LINE_GROUP_ID || null, groups: [...groups.values()] });
     }
 
+    // Post a plain message to the group. No push, no alert, no ack — this is for
+    // scheduled notices, so it deliberately does not touch the call log.
+    if (route === '/announce' && req.method === 'POST') {
+      const body = await req.json().catch(() => ({}));
+      const message = String(body.message ?? '').trim().slice(0, 1000);
+      if (!message) return json({ error: 'missing message' }, 400);
+
+      const line = await pushToLine(message);
+      if (!line.ok) {
+        return json({ ok: false, error: line.status, detail: line.detail }, line.status === 'line-not-configured' ? 409 : 502);
+      }
+      return json({ ok: true, sent_to: LINE_GROUP_ID, message });
+    }
+
     if (route === '/state') {
       const events = await db('alert_events?select=*&order=created_at.desc&limit=10');
       const subs = await db('push_subscriptions?select=endpoint');
