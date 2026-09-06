@@ -133,7 +133,7 @@
     <details id="settings">
       <summary>Settings</summary>
       <label for="apiBase">Backend URL</label>
-      <input id="apiBase" type="url" inputmode="url" placeholder="https://emsalert.onrender.com" autocomplete="off" />
+      <input id="apiBase" type="url" inputmode="url" placeholder="https://&lt;project&gt;.supabase.co/functions/v1/api" autocomplete="off" />
       <label for="token">Access phrase</label>
       <input id="token" type="password" placeholder="shared secret" autocomplete="current-password" />
       <label for="message">Message posted to the LINE group</label>
@@ -155,8 +155,11 @@
 const $ = (id) => document.getElementById(id);
 const LS = 'oncall.settings';
 
+// The Supabase Edge Function that fronts push, LINE and the call log.
+const DEFAULT_API = 'https://mvagebjizddemohhelta.supabase.co/functions/v1/api';
+
 const settings = Object.assign(
-  { apiBase: location.origin, token: '', message: 'On my way.' },
+  { apiBase: DEFAULT_API, token: '', message: 'On my way.' },
   JSON.parse(localStorage.getItem(LS) || '{}')
 );
 
@@ -252,7 +255,7 @@ function renderLog(events) {
 async function refresh() {
   if (!settings.token || !settings.apiBase) return;
   try {
-    const state = await call('/api/state');
+    const state = await call('/state');
     renderLog(state.events);
     $('devicePill').textContent = state.devices
       ? `${state.devices} device${state.devices > 1 ? 's' : ''} registered`
@@ -303,7 +306,7 @@ async function registerDevice() {
     return false;
   }
 
-  const key = await fetch(api('/api/vapid-public-key')).then((r) => r.text());
+  const key = await fetch(api('/vapid-public-key')).then((r) => r.text());
   if (!key) {
     toast('Backend has no VAPID key configured.');
     return false;
@@ -318,7 +321,7 @@ async function registerDevice() {
       applicationServerKey: urlBase64ToUint8Array(key.trim())
     }));
 
-  await call('/api/subscribe', {
+  await call('/subscribe', {
     method: 'POST',
     body: JSON.stringify({ subscription: sub.toJSON(), label: navigator.userAgent.slice(0, 120) })
   });
@@ -344,7 +347,7 @@ $('ack').addEventListener('click', async () => {
   btn.disabled = true;
   $('ackHint').textContent = 'sending…';
   try {
-    const out = await call('/api/acknowledge', {
+    const out = await call('/acknowledge', {
       method: 'POST',
       body: JSON.stringify({ id: current?.id, message: settings.message, via: 'page' })
     });
@@ -374,7 +377,7 @@ $('simulate').addEventListener('click', () => {
 $('enable').addEventListener('click', registerDevice);
 
 $('save').addEventListener('click', async () => {
-  settings.apiBase = $('apiBase').value.trim() || location.origin;
+  settings.apiBase = $('apiBase').value.trim() || DEFAULT_API;
   settings.token = $('token').value;
   settings.message = $('message').value.trim() || 'On my way.';
   localStorage.setItem(LS, JSON.stringify(settings));
@@ -385,7 +388,7 @@ $('save').addEventListener('click', async () => {
 
 $('test').addEventListener('click', async () => {
   try {
-    await call('/api/notify', {
+    await call('/notify', {
       method: 'POST',
       body: JSON.stringify({ title: 'Test alert', body: 'If you see this, push works.', source: 'self-test' })
     });

@@ -1,0 +1,49 @@
+{
+  "version": "5",
+  "specifiers": {
+    "jsr:@negrel/http-ece@0.6.0": "0.6.0",
+    "jsr:@negrel/webpush@0.3": "0.3.0",
+    "jsr:@std/assert@0.224": "0.224.0",
+    "jsr:@std/bytes@0.224.0": "0.224.0",
+    "jsr:@std/encoding@0.224.0": "0.224.0",
+    "jsr:@std/media-types@0.224.0": "0.224.0",
+    "jsr:@std/path@0.224.0": "0.224.0"
+  },
+  "jsr": {
+    "@negrel/http-ece@0.6.0": {
+      "integrity": "7afdd81b86ea5b21a9677b323c01c3338705e11cc2bfed250870f5349d8f86f7",
+      "dependencies": [
+        "jsr:@std/bytes",
+        "jsr:@std/encoding"
+      ]
+    },
+    "@negrel/webpush@0.3.0": {
+      "integrity": "5200a56e81668f2debadea228fbeabfe0eda2ee85a56786611dd97950bc51b23",
+      "dependencies": [
+        "jsr:@negrel/http-ece",
+        "jsr:@std/bytes",
+        "jsr:@std/encoding",
+        "jsr:@std/media-types",
+        "jsr:@std/path"
+      ]
+    },
+    "@std/assert@0.224.0": {
+      "integrity": "8643233ec7aec38a940a8264a6e3eed9bfa44e7a71cc6b3c8874213ff401967f"
+    },
+    "@std/bytes@0.224.0": {
+      "integrity": "a2250e1d0eb7d1c5a426f21267ab9bdeac2447fa87a3d0d1a467d3f7a6058e49"
+    },
+    "@std/encoding@0.224.0": {
+      "integrity": "efb6dca97d3e9c31392bd5c8cfd9f9fc9decf5a1f4d1f78af7900a493bcf89b5"
+    },
+    "@std/media-types@0.224.0": {
+      "integrity": "5ac87989393f8cb1c81bee02aef6f5d4c8289b416deabc04f9ad25dff292d0b0"
+    },
+    "@std/path@0.224.0": {
+      "integrity": "55bca6361e5a6d158b9380e82d4981d82d338ec587de02951e2b7c3a24910ee6",
+      "dependencies": [
+        "jsr:@std/assert"
+      ]
+    }
+  }
+}

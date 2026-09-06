@@ -1,0 +1,9 @@
+{
+  "name": "emsalert",
+  "private": true,
+  "description": "On-call alert -> push notification -> LINE group acknowledge",
+  "scripts": {
+    "keys": "deno run -A supabase/functions/_tools/generate-vapid-keys.ts vapid-keys.local.json",
+    "dev": "deno run -A supabase/functions/api/index.ts"
+  }
+}
