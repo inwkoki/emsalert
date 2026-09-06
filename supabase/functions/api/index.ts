@@ -317,8 +317,8 @@ Deno.serve(async (req) => {
               await replyToLine(
                 event.replyToken,
                 out.devices === 0
-                  ? 'No phone is registered for alerts yet — call the old way.'
-                  : 'Paged. Waiting for a reply.'
+                  ? 'ยังไม่มีเครื่องลงทะเบียนรับแจ้งเตือน กรุณาโทรตามปกติ'
+                  : 'รับทราบ กำลังรอตอบกลับ'
               );
             }
           }
