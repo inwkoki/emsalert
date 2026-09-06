@@ -1,0 +1,437 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<meta name="theme-color" content="#0b0f14" />
+<title>On-Call</title>
+<link rel="manifest" href="./manifest.json" />
+<link rel="apple-touch-icon" href="./icon-192.png" />
+<style>
+  :root {
+    --bg: #0b0f14;
+    --card: #141b24;
+    --line: #223040;
+    --text: #e8eef6;
+    --muted: #8fa3b8;
+    --accent: #35c46a;
+    --alert: #ff4d4f;
+    --amber: #f0a500;
+  }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  body {
+    margin: 0;
+    min-height: 100dvh;
+    background: var(--bg);
+    color: var(--text);
+    font: 16px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    display: flex;
+    justify-content: center;
+    padding: max(16px, env(safe-area-inset-top)) 16px max(16px, env(safe-area-inset-bottom));
+  }
+  main { width: 100%; max-width: 480px; }
+  .card {
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: 20px;
+    padding: 20px;
+    margin-bottom: 14px;
+  }
+  header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; }
+  h1 { font-size: 18px; margin: 0; letter-spacing: .2px; }
+  .pill {
+    font-size: 12px; padding: 5px 10px; border-radius: 999px;
+    border: 1px solid var(--line); color: var(--muted); background: #0f151d;
+  }
+  .pill.ok { color: var(--accent); border-color: #1d5c36; }
+  .pill.bad { color: var(--alert); border-color: #5c2020; }
+
+  /* --- status card --------------------------------------------------- */
+  #status { text-align: center; padding: 28px 20px; }
+  .state-label { font-size: 13px; letter-spacing: .18em; text-transform: uppercase; color: var(--muted); }
+  .state-title { font-size: 26px; font-weight: 650; margin: 10px 0 4px; }
+  .state-sub { color: var(--muted); font-size: 15px; margin: 0; }
+  body[data-state="incoming"] #status { border-color: var(--alert); animation: pulse 1.4s ease-in-out infinite; }
+  body[data-state="incoming"] .state-title { color: var(--alert); }
+  body[data-state="onway"] #status { border-color: #1d5c36; }
+  body[data-state="onway"] .state-title { color: var(--accent); }
+  @keyframes pulse {
+    0%, 100% { box-shadow: 0 0 0 0 rgba(255,77,79,.35); }
+    50% { box-shadow: 0 0 0 14px rgba(255,77,79,0); }
+  }
+
+  /* --- big tap target -------------------------------------------------- */
+  #ack {
+    width: 100%; min-height: 148px; border: 0; border-radius: 22px;
+    background: linear-gradient(180deg, #3ddc7a, #21a355);
+    color: #05230f; font-size: 24px; font-weight: 750; letter-spacing: .2px;
+    display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px;
+    cursor: pointer; transition: transform .08s ease, filter .15s ease;
+  }
+  #ack:active { transform: scale(.985); }
+  #ack:disabled { filter: grayscale(.7) brightness(.6); cursor: default; }
+  #ack small { font-size: 13px; font-weight: 500; opacity: .75; }
+
+  button.secondary {
+    width: 100%; padding: 13px; margin-top: 10px; border-radius: 12px;
+    background: #0f151d; border: 1px solid var(--line); color: var(--text);
+    font-size: 15px; cursor: pointer;
+  }
+  button.secondary:active { background: #16202c; }
+
+  label { display: block; font-size: 13px; color: var(--muted); margin: 12px 0 5px; }
+  input, textarea {
+    width: 100%; padding: 11px 12px; border-radius: 10px;
+    background: #0f151d; border: 1px solid var(--line); color: var(--text);
+    font: inherit; font-size: 15px;
+  }
+  textarea { resize: vertical; min-height: 64px; }
+
+  details summary { cursor: pointer; color: var(--muted); font-size: 14px; list-style: none; }
+  details summary::-webkit-details-marker { display: none; }
+  details summary::before { content: "⚙ "; }
+  details[open] summary { margin-bottom: 6px; }
+
+  ul.log { list-style: none; margin: 8px 0 0; padding: 0; font-size: 13px; }
+  ul.log li { padding: 8px 0; border-top: 1px solid var(--line); display: flex; justify-content: space-between; gap: 10px; }
+  ul.log li span.t { color: var(--muted); white-space: nowrap; }
+  .ack-yes { color: var(--accent); }
+  .ack-no { color: var(--amber); }
+
+  #toast {
+    position: fixed; left: 50%; bottom: 24px; transform: translate(-50%, 24px);
+    background: #1d2733; border: 1px solid var(--line); color: var(--text);
+    padding: 11px 16px; border-radius: 12px; font-size: 14px; max-width: 90vw;
+    opacity: 0; pointer-events: none; transition: opacity .2s, transform .2s;
+  }
+  #toast.show { opacity: 1; transform: translate(-50%, 0); }
+</style>
+</head>
+<body data-state="idle">
+<main>
+  <header>
+    <h1>On-Call</h1>
+    <span id="devicePill" class="pill">checking…</span>
+  </header>
+
+  <section class="card" id="status">
+    <div class="state-label" id="stateLabel">Standing by</div>
+    <div class="state-title" id="stateTitle">No active call</div>
+    <p class="state-sub" id="stateSub">You will get a notification when the team needs you.</p>
+  </section>
+
+  <section class="card">
+    <button id="ack">
+      I&rsquo;m on my way
+      <small id="ackHint">posts to the LINE group</small>
+    </button>
+    <button class="secondary" id="enable" hidden>Enable notifications on this phone</button>
+    <button class="secondary" id="simulate">Simulate incoming (dev)</button>
+  </section>
+
+  <section class="card">
+    <details id="settings">
+      <summary>Settings</summary>
+      <label for="apiBase">Backend URL</label>
+      <input id="apiBase" type="url" inputmode="url" placeholder="https://emsalert.onrender.com" autocomplete="off" />
+      <label for="token">Access phrase</label>
+      <input id="token" type="password" placeholder="shared secret" autocomplete="current-password" />
+      <label for="message">Message posted to the LINE group</label>
+      <textarea id="message" placeholder="On my way."></textarea>
+      <button class="secondary" id="save">Save &amp; register this device</button>
+      <button class="secondary" id="test">Send a test push to this phone</button>
+    </details>
+  </section>
+
+  <section class="card">
+    <div class="state-label">Recent calls</div>
+    <ul class="log" id="log"><li><span>Nothing yet.</span></li></ul>
+  </section>
+</main>
+
+<div id="toast"></div>
+
+<script>
+const $ = (id) => document.getElementById(id);
+const LS = 'oncall.settings';
+
+const settings = Object.assign(
+  { apiBase: location.origin, token: '', message: 'On my way.' },
+  JSON.parse(localStorage.getItem(LS) || '{}')
+);
+
+let current = null;      // the alert we are showing
+let acked = null;        // ack info for `current`
+let swReg = null;
+
+// ---- helpers ---------------------------------------------------------------
+
+function toast(msg) {
+  const el = $('toast');
+  el.textContent = msg;
+  el.classList.add('show');
+  clearTimeout(toast.t);
+  toast.t = setTimeout(() => el.classList.remove('show'), 3200);
+}
+
+const api = (path) => settings.apiBase.replace(/\/+$/, '') + path;
+
+async function call(path, options = {}) {
+  const res = await fetch(api(path), {
+    ...options,
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: 'Bearer ' + settings.token,
+      ...(options.headers || {})
+    }
+  });
+  if (!res.ok) {
+    const detail = await res.text().catch(() => '');
+    throw new Error(res.status === 401 ? 'Wrong access phrase' : `HTTP ${res.status} ${detail}`.trim());
+  }
+  return res.status === 204 ? null : res.json().catch(() => ({}));
+}
+
+const clock = (iso) =>
+  new Date(iso).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+
+// ---- rendering -------------------------------------------------------------
+
+function render() {
+  const body = document.body;
+  if (acked) {
+    body.dataset.state = 'onway';
+    $('stateLabel').textContent = 'Acknowledged';
+    $('stateTitle').textContent = "You're on the way";
+    const where =
+      acked.via === 'simulated'
+        ? 'Simulated at ' + clock(acked.acked_at) + ' — nothing was sent'
+        : acked.line === 'line-not-configured'
+          ? 'Marked at ' + clock(acked.acked_at) + ' — LINE is not configured on the backend'
+          : 'Posted to the LINE group at ' + clock(acked.acked_at) +
+            (acked.via === 'notification' ? ' (from the notification)' : '');
+    $('stateSub').textContent = where;
+    $('ack').disabled = true;
+    $('ackHint').textContent = 'the group has been told';
+  } else if (current) {
+    body.dataset.state = 'incoming';
+    $('stateLabel').textContent = 'Incoming — ' + clock(current.created_at);
+    $('stateTitle').textContent = current.title;
+    $('stateSub').textContent = current.body;
+    $('ack').disabled = false;
+    $('ackHint').textContent = 'posts to the LINE group';
+  } else {
+    body.dataset.state = 'idle';
+    $('stateLabel').textContent = 'Standing by';
+    $('stateTitle').textContent = 'No active call';
+    $('stateSub').textContent = 'You will get a notification when the team needs you.';
+    $('ack').disabled = false;
+    $('ackHint').textContent = 'posts to the LINE group';
+  }
+}
+
+function renderLog(events) {
+  const log = $('log');
+  if (!events?.length) {
+    log.innerHTML = '<li><span>Nothing yet.</span></li>';
+    return;
+  }
+  log.innerHTML = events
+    .map((e) => {
+      const state = e.acked_at
+        ? `<span class="ack-yes">on the way ${clock(e.acked_at)}</span>`
+        : '<span class="ack-no">no reply</span>';
+      const title = e.title.replace(/[<>&]/g, (c) => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;' }[c]));
+      return `<li><span>${title}</span><span class="t">${clock(e.created_at)} · ${state}</span></li>`;
+    })
+    .join('');
+}
+
+// ---- state sync ------------------------------------------------------------
+
+async function refresh() {
+  if (!settings.token || !settings.apiBase) return;
+  try {
+    const state = await call('/api/state');
+    renderLog(state.events);
+    $('devicePill').textContent = state.devices
+      ? `${state.devices} device${state.devices > 1 ? 's' : ''} registered`
+      : 'no device registered';
+    $('devicePill').className = 'pill ' + (state.devices ? 'ok' : 'bad');
+
+    const latest = state.latest;
+    if (latest) {
+      // Only surface alerts from the last 30 minutes as "active".
+      const fresh = Date.now() - new Date(latest.created_at).getTime() < 30 * 60 * 1000;
+      current = fresh ? latest : null;
+      acked =
+        fresh && latest.acked_at
+          ? { acked_at: latest.acked_at, via: latest.ack_via, line: latest.line_status }
+          : null;
+    }
+    render();
+  } catch (err) {
+    $('devicePill').textContent = err.message;
+    $('devicePill').className = 'pill bad';
+  }
+}
+
+// ---- push registration -----------------------------------------------------
+
+function urlBase64ToUint8Array(base64) {
+  const padded = (base64 + '='.repeat((4 - (base64.length % 4)) % 4))
+    .replace(/-/g, '+')
+    .replace(/_/g, '/');
+  const raw = atob(padded);
+  return Uint8Array.from([...raw].map((c) => c.charCodeAt(0)));
+}
+
+async function registerDevice() {
+  if (!('serviceWorker' in navigator) || !('PushManager' in window)) {
+    toast('This browser cannot receive push. Use Chrome on Android.');
+    return false;
+  }
+  if (!settings.token) {
+    toast('Enter the access phrase first.');
+    $('settings').open = true;
+    return false;
+  }
+
+  const permission = await Notification.requestPermission();
+  if (permission !== 'granted') {
+    toast('Notification permission denied — allow it in site settings.');
+    return false;
+  }
+
+  const key = await fetch(api('/api/vapid-public-key')).then((r) => r.text());
+  if (!key) {
+    toast('Backend has no VAPID key configured.');
+    return false;
+  }
+
+  swReg = swReg || (await navigator.serviceWorker.ready);
+  const existing = await swReg.pushManager.getSubscription();
+  const sub =
+    existing ||
+    (await swReg.pushManager.subscribe({
+      userVisibleOnly: true,
+      applicationServerKey: urlBase64ToUint8Array(key.trim())
+    }));
+
+  await call('/api/subscribe', {
+    method: 'POST',
+    body: JSON.stringify({ subscription: sub.toJSON(), label: navigator.userAgent.slice(0, 120) })
+  });
+  toast('This phone is registered.');
+  $('enable').hidden = true;
+  await refresh();
+  return true;
+}
+
+// ---- actions ---------------------------------------------------------------
+
+$('ack').addEventListener('click', async () => {
+  const btn = $('ack');
+
+  // A simulated alert must never reach the real group.
+  if (current?.id?.startsWith('sim-')) {
+    acked = { acked_at: new Date().toISOString(), via: 'simulated' };
+    render();
+    toast('Simulated — nothing was sent to LINE.');
+    return;
+  }
+
+  btn.disabled = true;
+  $('ackHint').textContent = 'sending…';
+  try {
+    const out = await call('/api/acknowledge', {
+      method: 'POST',
+      body: JSON.stringify({ id: current?.id, message: settings.message, via: 'page' })
+    });
+    acked = { acked_at: out.acked_at || new Date().toISOString(), via: 'page', line: out.line };
+    if (out.line === 'line-not-configured') toast('Marked — but LINE is not configured on the backend.');
+    else toast(out.duplicate ? 'Already acknowledged.' : 'Posted to the LINE group.');
+    render();
+    refresh();
+  } catch (err) {
+    btn.disabled = false;
+    $('ackHint').textContent = 'posts to the LINE group';
+    toast(err.message);
+  }
+});
+
+$('simulate').addEventListener('click', () => {
+  current = {
+    id: 'sim-' + Date.now(),
+    title: 'Incoming call (simulated)',
+    body: 'This is a local test — nothing was sent.',
+    created_at: new Date().toISOString()
+  };
+  acked = null;
+  render();
+});
+
+$('enable').addEventListener('click', registerDevice);
+
+$('save').addEventListener('click', async () => {
+  settings.apiBase = $('apiBase').value.trim() || location.origin;
+  settings.token = $('token').value;
+  settings.message = $('message').value.trim() || 'On my way.';
+  localStorage.setItem(LS, JSON.stringify(settings));
+  toast('Saved.');
+  await registerDevice();
+  refresh();
+});
+
+$('test').addEventListener('click', async () => {
+  try {
+    await call('/api/notify', {
+      method: 'POST',
+      body: JSON.stringify({ title: 'Test alert', body: 'If you see this, push works.', source: 'self-test' })
+    });
+    toast('Test push sent.');
+  } catch (err) {
+    toast(err.message);
+  }
+});
+
+// ---- boot ------------------------------------------------------------------
+
+$('apiBase').value = settings.apiBase;
+$('token').value = settings.token;
+$('message').value = settings.message;
+if (!settings.token) $('settings').open = true;
+
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.register('./sw.js').then(async (reg) => {
+    swReg = reg;
+    const sub = await reg.pushManager.getSubscription().catch(() => null);
+    $('enable').hidden = Boolean(sub) && Notification.permission === 'granted';
+  });
+
+  navigator.serviceWorker.addEventListener('message', (event) => {
+    const msg = event.data || {};
+    if (msg.type === 'ack-result' && msg.result?.ok) {
+      acked = { acked_at: msg.result.acked_at || new Date().toISOString(), via: 'notification' };
+      render();
+      refresh();
+    }
+    if (msg.type === 'resubscribe') registerDevice();
+  });
+}
+
+// Opened from a notification tap: show that alert straight away.
+const params = new URLSearchParams(location.search);
+if (params.get('id')) {
+  current = { id: params.get('id'), title: 'Incoming call', body: 'Tap below to answer.', created_at: new Date().toISOString() };
+  render();
+  history.replaceState(null, '', location.pathname);
+}
+
+render();
+refresh();
+setInterval(() => document.visibilityState === 'visible' && refresh(), 15000);
+document.addEventListener('visibilitychange', () => document.visibilityState === 'visible' && refresh());
+</script>
+</body>
+</html>
