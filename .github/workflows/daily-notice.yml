@@ -33,7 +33,7 @@ jobs:
         env:
           API: https://mvagebjizddemohhelta.supabase.co/functions/v1/api
           ACCESS_TOKEN: ${{ secrets.ONCALL_ACCESS_TOKEN }}
-          MESSAGE: '🚨🚑 EMS โกกิ ไม่กินข้าว 0984973757 🚑🚨 พิมพ์ !call เพื่อเรียก'
+          MESSAGE: '🚨🚑 EMS โกกิ ไม่กินข้าว 0984973757 🚑🚨 พิมพ์ !call หรือ @EMS alert เพื่อเรียกได้ครับ'
           FIRST_DAY: '2026-09-07'
           LAST_DAY: '2026-09-18'
           IGNORE_WINDOW: ${{ inputs.ignore_window }}

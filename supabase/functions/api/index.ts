@@ -376,7 +376,11 @@ Deno.serve(async (req) => {
           event.type === 'message' &&
           event.message?.type === 'text' &&
           event.source?.type === 'group' &&
-          event.source.groupId === LINE_GROUP_ID
+          event.source.groupId === LINE_GROUP_ID &&
+          // Only a real member pages anyone. LINE does not echo the bot's own
+          // messages back to the webhook, but the daily notice now contains
+          // "@EMS alert" — so if that ever changed, this stops the loop.
+          Boolean(event.source.userId)
         ) {
           const body = String(event.message.text ?? '').trim();
           const lower = body.toLowerCase();
