@@ -50,3 +50,13 @@ create table if not exists line_webhook_events (
 alter table push_subscriptions  enable row level security;
 alter table alert_events        enable row level security;
 alter table line_webhook_events enable row level security;
+
+-- One row per Bangkok day the notice was sent. The date is the primary key, so
+-- repeated attempts from an unreliable scheduler collapse to a single message.
+create table if not exists daily_notice_log (
+  day       date primary key,
+  sent_at   timestamptz not null default now(),
+  message   text
+);
+
+alter table daily_notice_log enable row level security;

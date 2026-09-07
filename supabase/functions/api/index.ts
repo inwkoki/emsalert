@@ -548,6 +548,53 @@ Deno.serve(async (req) => {
       return json({ ok: true, sent_to: LINE_GROUP_ID, message });
     }
 
+    // The daily notice, made safe to call repeatedly.
+    //
+    // GitHub's scheduler is best effort — it has fired this over four hours
+    // late — so the caller is not trusted to know what time it is. Several
+    // attempts are scheduled and this decides: never before 08:00 Bangkok,
+    // and at most once per Bangkok day. The date is the primary key, so the
+    // database settles any race, not the caller.
+    if (route === '/daily-notice' && req.method === 'POST') {
+      const body = await req.json().catch(() => ({}));
+      const message = String(body.message ?? '').trim().slice(0, 1000);
+      if (!message) return json({ error: 'missing message' }, 400);
+      const notBefore = Number(body.not_before_hour ?? 8);
+
+      const parts = new Intl.DateTimeFormat('en-CA', {
+        timeZone: 'Asia/Bangkok',
+        year: 'numeric', month: '2-digit', day: '2-digit',
+        hour: '2-digit', minute: '2-digit', hour12: false
+      }).formatToParts(new Date());
+      const get = (t: string) => parts.find((p) => p.type === t)?.value ?? '';
+      const day = `${get('year')}-${get('month')}-${get('day')}`;
+      const hour = Number(get('hour'));
+      const localTime = `${get('hour')}:${get('minute')}`;
+
+      if (hour < notBefore) {
+        return json({ ok: true, skipped: 'too early', day, bangkok_time: localTime });
+      }
+
+      // Insert-or-nothing: the day is the primary key, so exactly one caller
+      // can win regardless of how many fire at once.
+      const claimed = await db('daily_notice_log', {
+        method: 'POST',
+        prefer: 'resolution=ignore-duplicates,return=representation',
+        body: JSON.stringify({ day, message })
+      });
+      if (!claimed?.length) {
+        return json({ ok: true, skipped: 'already sent today', day, bangkok_time: localTime });
+      }
+
+      const line = await pushToLine(message);
+      if (!line.ok) {
+        // Give the day back so a later attempt retries instead of losing it.
+        await db(`daily_notice_log?day=eq.${day}`, { method: 'DELETE', prefer: 'return=minimal' });
+        return json({ ok: false, error: line.status, detail: line.detail, day }, 502);
+      }
+      return json({ ok: true, sent: true, day, bangkok_time: localTime, message });
+    }
+
     if (route === '/state') {
       const events = await db('alert_events?select=*&order=created_at.desc&limit=10');
       const subs = await db('push_subscriptions?select=endpoint,label,created_at&order=created_at.desc');

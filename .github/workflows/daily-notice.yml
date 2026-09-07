@@ -1,16 +1,24 @@
-# Daily notice into the LINE group, weekday mornings, for a fixed two-week run.
+# Daily notice into the LINE group, weekday mornings, for a fixed run.
 #
-# GitHub's scheduler fires in UTC and can drift a few minutes under load; that is
-# fine for a morning notice, but it is why this is NOT what pages the phone.
+# GitHub's scheduler is best effort. On 2026-09-07 it fired a 01:00 UTC job at
+# 05:44 UTC — four and three quarter hours late. So this does NOT trust the
+# scheduler to know the time: it fires repeatedly, and the backend decides.
+# /daily-notice refuses to post before 08:00 Bangkok and keys the send on the
+# Bangkok date, so however many attempts land, the group gets exactly one
+# message, as close to 08:00 as GitHub manages to wake up.
 name: Daily LINE notice
 
 on:
   schedule:
-    - cron: '0 1 * * 1-5' # 01:00 UTC = 08:00 Asia/Bangkok, Mon-Fri
+    # 08:00, 08:20, 08:40, 09:10, 09:40, 10:30 Bangkok (UTC-7). Off the hour on
+    # purpose — the top of the hour is when GitHub's queue is worst.
+    - cron: '2,22,42 1 * * 1-5'
+    - cron: '10,40 2 * * 1-5'
+    - cron: '30 3 * * 1-5'
   workflow_dispatch:
     inputs:
       ignore_window:
-        description: 'Send even if today is outside the two-week window (for testing)'
+        description: 'Send even if today is outside the run window (for testing)'
         type: boolean
         default: false
 
@@ -31,21 +39,22 @@ jobs:
           IGNORE_WINDOW: ${{ inputs.ignore_window }}
         run: |
           set -euo pipefail
-          today=$(TZ=Asia/Bangkok date +%F)
-          echo "Bangkok date: $today (window $FIRST_DAY .. $LAST_DAY)"
+          echo "UTC now:     $(date -u '+%F %H:%M')"
+          echo "Bangkok now: $(TZ=Asia/Bangkok date '+%F %H:%M')"
 
+          today=$(TZ=Asia/Bangkok date +%F)
           if [[ "$IGNORE_WINDOW" != "true" ]]; then
             if [[ "$today" < "$FIRST_DAY" || "$today" > "$LAST_DAY" ]]; then
-              echo "Outside the two-week window — nothing to send."
+              echo "Outside the run window ($FIRST_DAY .. $LAST_DAY) — nothing to send."
               exit 0
             fi
           fi
 
-          code=$(curl -sS -o response.json -w '%{http_code}' -X POST "$API/announce" \
+          code=$(curl -sS -o response.json -w '%{http_code}' -X POST "$API/daily-notice" \
             -H "Authorization: Bearer $ACCESS_TOKEN" \
             -H 'Content-Type: application/json' \
-            --data "$(jq -nc --arg m "$MESSAGE" '{message:$m}')")
+            --data "$(jq -nc --arg m "$MESSAGE" '{message:$m, not_before_hour:8}')")
 
           echo "HTTP $code"; cat response.json; echo
-          # Fail loudly: a silent failure here is a notice nobody knows is missing.
+          # A skip is a success: another attempt already sent it, or it is early.
           [[ "$code" == "200" ]]
