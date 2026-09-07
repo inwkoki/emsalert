@@ -33,7 +33,9 @@ const LINE_API = env('LINE_API_BASE') || 'https://api.line.me';
 
 // What the team types in the group to page the phone. Deliberately unlikely to
 // be typed by accident; override with TRIGGER_KEYWORDS (comma-separated).
-const KEYWORDS = (env('TRIGGER_KEYWORDS') || '!call,!alert,!doctor')
+// "@ems alert" is there because LINE's @ menu inserts the bot's display name,
+// not its id — so the text that actually arrives has a space in it.
+const KEYWORDS = (env('TRIGGER_KEYWORDS') || '!call,!alert,!doctor,@emsalert,@ems alert')
   .split(',')
   .map((k) => k.trim().toLowerCase())
   .filter(Boolean);
@@ -378,14 +380,38 @@ Deno.serve(async (req) => {
         ) {
           const body = String(event.message.text ?? '').trim();
           const lower = body.toLowerCase();
-          const hit = KEYWORDS.find((k) => lower === k || lower.startsWith(k + ' '));
-          const mentioned = Boolean(event.message.mention?.mentionees?.some((m: { type?: string }) => m.type === 'bot'));
+
+          // Two kinds of keyword:
+          //   "!call"     a command — must open the line
+          //   "@emsalert" a mention — may sit anywhere, but has to start a word,
+          //               so an address like foo@emsalert.com pages nobody.
+          let hit: string | null = null;
+          let detail = body;
+          for (const k of KEYWORDS) {
+            if (k.startsWith('@')) {
+              const at = lower.indexOf(k);
+              if (at >= 0 && (at === 0 || /\s/.test(lower[at - 1]))) {
+                hit = k;
+                detail = (body.slice(0, at) + ' ' + body.slice(at + k.length)).replace(/\s+/g, ' ').trim();
+                break;
+              }
+            } else if (lower === k || lower.startsWith(k + ' ')) {
+              hit = k;
+              detail = body.slice(k.length).trim();
+              break;
+            }
+          }
+
+          // Set only when the sender picked the bot from LINE's @ menu, which
+          // inserts the display name rather than the id — hence the text paths above.
+          const mentioned = Boolean(
+            event.message.mention?.mentionees?.some((m: { type?: string }) => m.type === 'bot')
+          );
 
           if (hit || mentioned) {
             const name = event.source.userId
               ? await groupMemberName(event.source.groupId, event.source.userId)
               : null;
-            const detail = hit ? body.slice(hit.length).trim() : body;
 
             const out = await raiseAlert(base, {
               title: name ? `${name} is calling you` : 'The team is calling you',
