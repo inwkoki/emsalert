@@ -44,22 +44,55 @@ All under `https://mvagebjizddemohhelta.supabase.co/functions/v1/api`:
 | `POST /notify` | `ACCESS_TOKEN` | Raise an alert. `{title, body, source}` |
 | `GET /trigger?token=` | `TRIGGER_TOKEN` | Same, as one plain URL for a shortcut. |
 | `POST /acknowledge` | `ACCESS_TOKEN` | Post to the LINE group. `{id, message, via}` |
-| `GET /state` | `ACCESS_TOKEN` | Latest alert + last 10 calls. |
-| `POST /line-webhook` | LINE signature | Records events — this is how you get the group ID. |
+| `GET /state` | `ACCESS_TOKEN` | Latest alert + last 10 calls, and which devices are registered. |
+| `GET /groups` | `ACCESS_TOKEN` | Every group the bot has seen, and which one is configured. |
+| `POST /announce` | `ACCESS_TOKEN` | Post an arbitrary message to the group. |
+| `POST /daily-notice` | `ACCESS_TOKEN` | The 08:00 notice. Refuses before 08:00 Bangkok, once per day. |
+| `POST /line-webhook` | LINE signature | Records events, and this is where `!call` / `@emsalert` are handled. |
 
 Acks are idempotent per alert, so answering from the notification and then
 opening the page doesn't post twice. Subscriptions Chrome discards (404/410)
 are deleted on the next push.
 
-## Already done
+## What the group sees
 
-- Page live at https://inwkoki.github.io/emsalert/ (Pages → `main` → `/docs`)
-- Tables created in project `mvagebjizddemohhelta`
-- Function `api` deployed with Verify JWT off
-- Secrets set: `VAPID_KEYS`, `VAPID_SUBJECT`, `ACCESS_TOKEN`, `TRIGGER_TOKEN`, `APP_URL`, `ACK_MESSAGE`
-  (the access phrase is in `ACCESS-PHRASE.local.json`, gitignored)
+| Moment | Message | Set by |
+| --- | --- | --- |
+| Someone types `!call` or `@emsalert` | `รับทราบ กำลังรอตอบกลับ` | code |
+| You answer | `โกกิกำลังไปงับ` | `ACK_MESSAGE` |
+| No answer after 60s | `โกกิไม่ตอบ กรุณาโทร` | `ESCALATE_MESSAGE` |
+| Weekday 08:00 | the daily notice | `DAILY_NOTICE_MESSAGE` |
 
-Still needed: the three `LINE_*` secrets, and registering the phone.
+All four are Supabase secrets — changing one is a `secrets set`, no redeploy.
+
+## The two schedules
+
+The daily notice is **sent by `pg_cron` inside Supabase** (`ems-daily-notice`,
+`0 1 * * 1-5` UTC = 08:00 Bangkok). It fires to the minute.
+
+GitHub Actions is **only a watchdog** now. It was the sender, and it was
+dispatching the job up to 4h42m late while silently dropping half its entries —
+that is why the notice arrived at 12:44 and 12:31 on 7–8 Sep. Checking does not
+need to be punctual, so GitHub still suits that job: the workflow calls the same
+endpoint later in the day, which skips if `pg_cron` did its work and sends if it
+did not, then **fails on purpose** so a broken primary schedule reaches you as
+an email.
+
+Nothing can double-post: `/daily-notice` refuses before 08:00 Bangkok and the
+Bangkok date is a primary key, so whichever caller arrives first wins.
+
+```sql
+-- did it run?
+select * from cron.job_run_details order by start_time desc limit 10;
+-- what did the call return?
+select id, status_code, content from net._http_response order by id desc limit 5;
+```
+
+> **Rotating `ACCESS_TOKEN` means updating two places**, not one: the Supabase
+> secret *and* the vault entry the cron job reads —
+> `select vault.update_secret((select id from vault.secrets where name = 'oncall_access_token'), '<new token>');`
+> Miss the second and the 08:00 notice starts failing. The watchdog will email
+> you, but only hours later.
 
 ## Setup
 
