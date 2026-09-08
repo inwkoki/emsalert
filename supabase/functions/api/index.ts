@@ -27,6 +27,7 @@ const LINE_SECRET = env('LINE_CHANNEL_SECRET');
 const LINE_GROUP_ID = env('LINE_GROUP_ID');
 const ACK_MESSAGE = env('ACK_MESSAGE') || 'On my way.';
 const APP_URL = env('APP_URL');
+const DAILY_NOTICE_MESSAGE = env('DAILY_NOTICE_MESSAGE');
 // Overridable so the escalation and reply paths can be tested end to end
 // against a stub instead of the real LINE API.
 const LINE_API = env('LINE_API_BASE') || 'https://api.line.me';
@@ -561,8 +562,10 @@ Deno.serve(async (req) => {
     // database settles any race, not the caller.
     if (route === '/daily-notice' && req.method === 'POST') {
       const body = await req.json().catch(() => ({}));
-      const message = String(body.message ?? '').trim().slice(0, 1000);
-      if (!message) return json({ error: 'missing message' }, 400);
+      // The text lives on the server so neither scheduler carries a copy — and
+      // so no Thai or emoji has to survive a trip through a SQL console.
+      const message = String(body.message ?? DAILY_NOTICE_MESSAGE).trim().slice(0, 1000);
+      if (!message) return json({ error: 'no message configured' }, 400);
       const notBefore = Number(body.not_before_hour ?? 8);
 
       const parts = new Intl.DateTimeFormat('en-CA', {

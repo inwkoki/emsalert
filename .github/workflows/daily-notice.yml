@@ -1,34 +1,26 @@
-# Daily notice into the LINE group, weekday mornings, for a fixed run.
+# Backstop and watchdog for the daily LINE notice.
 #
-# GitHub's scheduler is best effort. On 2026-09-07 it fired a 01:00 UTC job at
-# 05:44 UTC — four and three quarter hours late. So this does NOT trust the
-# scheduler to know the time: it fires repeatedly, and the backend decides.
-# /daily-notice refuses to post before 08:00 Bangkok and keys the send on the
-# Bangkok date, so however many attempts land, the group gets exactly one
-# message, as close to 08:00 as GitHub manages to wake up.
-name: Daily LINE notice
+# The notice is SENT by pg_cron inside Supabase, which fires at 08:00 Bangkok to
+# the minute. GitHub's scheduler cannot be trusted with that job — it ran 4h30m
+# late two days running and dropped half its entries — but it is fine for this,
+# because checking does not need to be punctual.
+#
+# Calling /daily-notice is both the check and the repair: if pg_cron already
+# sent today's notice this skips, and if pg_cron failed this sends it. Either
+# way the group gets exactly one message, because the Bangkok date is a primary
+# key on the server.
+#
+# A backstop that had to step in means the primary schedule is broken, so the
+# run FAILS on purpose — that is what turns it into an email.
+name: Daily LINE notice (backstop)
 
 on:
   schedule:
-    # Measured, not guessed: on 07-09 and 08-09 GitHub dispatched these ~4h30m
-    # after the cron time, and silently dropped half the entries. So the times
-    # below cover both worlds, and the backend's 08:00 guard decides which one
-    # actually posts:
-    #
-    #   if GitHub is ~4.5h late  -> the 20:30/20:50 UTC entries land ~08:00 BKK
-    #   if GitHub is punctual    -> those are refused as "too early" and the
-    #                               01:02 UTC entry posts at 08:02 BKK
-    #
-    # Entries before midnight UTC use days 0-4 (Sun-Thu) because 20:30 UTC on
-    # Sunday is 03:30 Monday in Bangkok.
-    - cron: '30,50 20 * * 0-4'   # BKK 03:30, 03:50 — or ~08:00, 08:20 when late
-    - cron: '10,40 21 * * 0-4'   # BKK 04:10, 04:40 — or ~08:40, 09:10 when late
-    - cron: '2,32 1 * * 1-5'     # BKK 08:02, 09:02 — the punctual path
-    - cron: '20 3 * * 1-5'       # BKK 10:20 — last resort
+    - cron: '0 4 * * 1-5' # nominally 11:00 Bangkok; late is fine, that is the point
   workflow_dispatch:
     inputs:
       ignore_window:
-        description: 'Send even if today is outside the run window (for testing)'
+        description: 'Ignore the run window (for testing)'
         type: boolean
         default: false
 
@@ -38,12 +30,11 @@ jobs:
   notice:
     runs-on: ubuntu-latest
     steps:
-      - name: Post the notice
+      - name: Check today's notice went out
         shell: bash
         env:
           API: https://mvagebjizddemohhelta.supabase.co/functions/v1/api
           ACCESS_TOKEN: ${{ secrets.ONCALL_ACCESS_TOKEN }}
-          MESSAGE: '🚨🚑 EMS โกกิ ไม่กินข้าว 0984973757 🚑🚨 พิมพ์ !call หรือ @EMS alert เพื่อเรียกได้ครับ'
           FIRST_DAY: '2026-09-07'
           LAST_DAY: '2026-09-18'
           IGNORE_WINDOW: ${{ inputs.ignore_window }}
@@ -55,16 +46,30 @@ jobs:
           today=$(TZ=Asia/Bangkok date +%F)
           if [[ "$IGNORE_WINDOW" != "true" ]]; then
             if [[ "$today" < "$FIRST_DAY" || "$today" > "$LAST_DAY" ]]; then
-              echo "Outside the run window ($FIRST_DAY .. $LAST_DAY) — nothing to send."
+              echo "Outside the run window ($FIRST_DAY .. $LAST_DAY) — nothing to check."
               exit 0
             fi
           fi
 
+          # No message in the body: the text lives in DAILY_NOTICE_MESSAGE on the
+          # server, so there is only ever one copy of it.
           code=$(curl -sS -o response.json -w '%{http_code}' -X POST "$API/daily-notice" \
             -H "Authorization: Bearer $ACCESS_TOKEN" \
             -H 'Content-Type: application/json' \
-            --data "$(jq -nc --arg m "$MESSAGE" '{message:$m, not_before_hour:8}')")
+            --data '{"not_before_hour":8}')
 
           echo "HTTP $code"; cat response.json; echo
-          # A skip is a success: another attempt already sent it, or it is early.
           [[ "$code" == "200" ]]
+
+          if grep -q '"skipped":"already sent today"' response.json; then
+            echo "✓ pg_cron sent today's notice. Nothing to do."
+            exit 0
+          fi
+
+          if grep -q '"sent":true' response.json; then
+            echo "::error::pg_cron did NOT send today's notice — this backstop sent it late."
+            echo "Check Supabase: select * from cron.job_run_details order by start_time desc limit 10;"
+            exit 1
+          fi
+
+          echo "Notice not sent and not due (probably before 08:00 Bangkok)."
