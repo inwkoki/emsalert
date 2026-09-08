@@ -10,11 +10,21 @@ name: Daily LINE notice
 
 on:
   schedule:
-    # 08:00, 08:20, 08:40, 09:10, 09:40, 10:30 Bangkok (UTC-7). Off the hour on
-    # purpose — the top of the hour is when GitHub's queue is worst.
-    - cron: '2,22,42 1 * * 1-5'
-    - cron: '10,40 2 * * 1-5'
-    - cron: '30 3 * * 1-5'
+    # Measured, not guessed: on 07-09 and 08-09 GitHub dispatched these ~4h30m
+    # after the cron time, and silently dropped half the entries. So the times
+    # below cover both worlds, and the backend's 08:00 guard decides which one
+    # actually posts:
+    #
+    #   if GitHub is ~4.5h late  -> the 20:30/20:50 UTC entries land ~08:00 BKK
+    #   if GitHub is punctual    -> those are refused as "too early" and the
+    #                               01:02 UTC entry posts at 08:02 BKK
+    #
+    # Entries before midnight UTC use days 0-4 (Sun-Thu) because 20:30 UTC on
+    # Sunday is 03:30 Monday in Bangkok.
+    - cron: '30,50 20 * * 0-4'   # BKK 03:30, 03:50 — or ~08:00, 08:20 when late
+    - cron: '10,40 21 * * 0-4'   # BKK 04:10, 04:40 — or ~08:40, 09:10 when late
+    - cron: '2,32 1 * * 1-5'     # BKK 08:02, 09:02 — the punctual path
+    - cron: '20 3 * * 1-5'       # BKK 10:20 — last resort
   workflow_dispatch:
     inputs:
       ignore_window:
